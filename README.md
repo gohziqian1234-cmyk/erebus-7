@@ -38,7 +38,9 @@ Release sweep passed:
 
 ## Recorded Voice Pack
 
-The game supports real recorded voiceover clips in the `voice/` folder. If a matching clip exists, it plays that recording instead of browser speech. If not, it falls back automatically.
+The game supports real recorded voiceover clips in the `voice/` folder. If a matching clip exists, it plays that recording instead of browser speech. If not, it falls back automatically to the built-in human-like voice agent.
+
+The voice agent chooses the most natural English browser voice available and uses different delivery profiles for the narrator, SELENE, parasite, commanders, doctors, and crew.
 
 See `voice/README.md` for file names like `story-01.mp3`, `prologue-01.mp3`, and `chapter-01-01.mp3`.
 

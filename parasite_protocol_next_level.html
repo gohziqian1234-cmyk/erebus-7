@@ -264,7 +264,7 @@ button{font-family:inherit}
           <button id="storyNext">BEGIN STORY</button>
           <button id="storySkip">SKIP</button>
           <div id="storyCount"></div>
-          <div id="voiceStatus">voice ready</div>
+          <div id="voiceStatus">voice agent ready</div>
         </div>
       </div>
       <div id="modeIntro">SELECT DIFFICULTY</div>
@@ -1803,8 +1803,11 @@ function showDifficultySelect(){
 function speakStory(text){
   const status=document.getElementById("voiceStatus");
   const key="story-"+String(storyIndex+1).padStart(2,"0");
-  if(playRecordedVoice(key,{status,onStart:"recorded voice",onEnd:"voice ready",onMissing:()=>speakStorySynth(text,status)}))return;
-  speakStorySynth(text,status);
+  if(playRecordedVoice(key,{status,onStart:"recorded voice",onEnd:"voice agent ready",onMissing:()=>speakStoryAgent(text,status)}))return;
+  speakStoryAgent(text,status);
+}
+function speakStoryAgent(text,status){
+  speakWithVoiceAgent({speaker:"NARRATOR",text,status,context:"story",onStart:"ai voice agent",onEnd:"voice agent ready"});
 }
 function speakStorySynth(text,status){
   if(!("speechSynthesis" in window)){
@@ -1825,18 +1828,7 @@ function speakStorySynth(text,status){
   }catch(e){status.textContent="voice blocked";}
 }
 function speakDialogLine(line){
-  if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
-  try{
-    speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(line[0]+". "+line[1]);
-    u.rate=line[0]==="YOU"?.72:.88;
-    u.pitch=line[0]==="YOU"?.48:.86;
-    u.volume=.34*SETTINGS.sfx;
-    const voices=speechSynthesis.getVoices();
-    const preferred=voices.find(v=>/english/i.test(v.lang)&&/david|mark|george|daniel|zira/i.test(v.name))||voices.find(v=>/english/i.test(v.lang));
-    if(preferred)u.voice=preferred;
-    speechSynthesis.speak(u);
-  }catch(e){}
+  speakWithVoiceAgent({speaker:line[0],text:line[1],context:"dialog",volume:.34});
 }
 function stopVoice(){
   if("speechSynthesis" in window)speechSynthesis.cancel();
@@ -1887,8 +1879,11 @@ function renderScene(){
 }
 function speakSceneLine(shot){
   const key=sceneVoiceKey(scene&&scene.data,scene?scene.index:0);
-  if(key&&playRecordedVoice(key,{onMissing:()=>speakSceneSynth(shot)}))return;
-  speakSceneSynth(shot);
+  if(key&&playRecordedVoice(key,{onMissing:()=>speakSceneAgent(shot)}))return;
+  speakSceneAgent(shot);
+}
+function speakSceneAgent(shot){
+  speakWithVoiceAgent({speaker:shot.speaker||"BLACKBOX",text:shot.line||"",context:"scene",volume:.46});
 }
 function speakSceneSynth(shot){
   if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
@@ -1903,6 +1898,67 @@ function speakSceneSynth(shot){
     if(preferred)u.voice=preferred;
     speechSynthesis.speak(u);
   }catch(e){}
+}
+function speakWithVoiceAgent(opts){
+  if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
+  const status=opts.status||null;
+  stopVoice();
+  try{
+    const profile=voiceProfileForSpeaker(opts.speaker,opts.context);
+    const line=voiceAgentText(opts.text||"",profile);
+    const u=new SpeechSynthesisUtterance(line);
+    u.rate=clamp((opts.rate||profile.rate)*(0.98+Math.random()*0.035),.45,1.05);
+    u.pitch=clamp((opts.pitch||profile.pitch)*(0.98+Math.random()*0.045),.25,1.35);
+    u.volume=clamp((opts.volume||profile.volume)*SETTINGS.sfx,.05,1);
+    const voice=selectHumanLikeVoice(profile);
+    if(voice)u.voice=voice;
+    u.onstart=()=>{if(status)status.textContent=opts.onStart||"ai voice agent";voiceAgentCue(profile,opts.context);};
+    u.onend=()=>{if(status)status.textContent=opts.onEnd||"voice agent ready";};
+    u.onerror=()=>{if(status)status.textContent="voice blocked";};
+    speechSynthesis.speak(u);
+  }catch(e){
+    if(status)status.textContent="voice blocked";
+  }
+}
+function voiceProfileForSpeaker(speaker="",context="scene"){
+  const s=String(speaker).toUpperCase();
+  if(/YOU|PARASITE|HOST SIGNAL/.test(s))return {id:"parasite",rate:.66,pitch:.44,volume:.44,hints:["Guy","Ryan","Brian","Davis","Daniel","Mark","David"],avoid:["Zira","Jenny","Aria"]};
+  if(/SELENE|AI/.test(s))return {id:"selene",rate:.72,pitch:.58,volume:.44,hints:["Ava","Aria","Jenny","Sonia","Zira","Libby","Emma"],avoid:["David"]};
+  if(/HUNTER|COMMANDER|ADMIRAL|SECURITY/.test(s))return {id:"command",rate:.78,pitch:.56,volume:.42,hints:["Guy","Davis","Ryan","George","Daniel","Mark"],avoid:["Zira"]};
+  if(/DR\\.|YUNA|MED|BOTANIST|SATO/.test(s))return {id:"doctor",rate:.84,pitch:.86,volume:.44,hints:["Jenny","Aria","Ava","Sonia","Zira","Libby","Emma"],avoid:[]};
+  if(/BLACKBOX|NARRATOR|MISSION|SITUATION|OBJECTIVE|WHY|RESULT/.test(s)||context==="story")return {id:"narrator",rate:.76,pitch:.68,volume:.58,hints:["Guy","Jenny","Aria","Davis","Ryan","Brian","Daniel","Mark","George"],avoid:[]};
+  return {id:"crew",rate:.84,pitch:.80,volume:.38,hints:["Jenny","Aria","Guy","Davis","Zira","David"],avoid:[]};
+}
+function voiceAgentText(text,profile){
+  let clean=String(text||"").replace(/\[|\]/g,"").replace(/\\s+/g," ").trim();
+  clean=clean.replace(/ - /g,". ");
+  if(profile.id==="parasite")clean=clean.replace(/\\./g,"...").replace(/,/g,", ");
+  if(profile.id==="selene")clean=clean.replace(/\\bI\\b/g,"I").replace(/\\. /g,".  ");
+  if(profile.id==="narrator"&&clean.length<95)clean=clean.replace(/\\. /g,". ... ");
+  return clean;
+}
+function selectHumanLikeVoice(profile){
+  const voices=("speechSynthesis" in window?speechSynthesis.getVoices():[])||[];
+  if(!voices.length)return null;
+  let best=null,bestScore=-Infinity;
+  for(const v of voices){
+    const name=(v.name||"")+" "+(v.voiceURI||""),lang=v.lang||"";
+    let score=/en/i.test(lang)?30:0;
+    if(/natural|neural|online|premium|enhanced/i.test(name))score+=80;
+    if(/microsoft|google|apple/i.test(name))score+=12;
+    for(const h of profile.hints||[])if(new RegExp(h,"i").test(name))score+=22;
+    for(const a of profile.avoid||[])if(new RegExp(a,"i").test(name))score-=12;
+    if(/david|zira/i.test(name)&&!/natural|online|neural/i.test(name))score-=10;
+    if(v.default)score+=5;
+    if(score>bestScore){bestScore=score;best=v;}
+  }
+  return best;
+}
+function voiceAgentCue(profile,context){
+  if(!audio||!audio.ctx||context==="dialog")return;
+  if(profile.id==="selene"){tone(520,.045,.018,"sine");setTimeout(()=>tone(780,.055,.014,"sine"),70);return;}
+  if(profile.id==="parasite"){tone(92,.12,.028,"sawtooth");return;}
+  tone(240,.035,.014,"triangle");
 }
 function playRecordedVoice(key,opts={}){
   if(!key||!SETTINGS.sfx)return false;
