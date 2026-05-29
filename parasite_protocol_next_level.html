@@ -1683,8 +1683,10 @@ document.getElementById("storyChoices").addEventListener("click",e=>{
 });
 document.getElementById("sceneNext").addEventListener("click",sceneNext);
 document.getElementById("sceneSkip").addEventListener("click",sceneSkip);
+document.addEventListener("pointerdown",()=>unlockAudio(true),{passive:true});
 
 addEventListener("keydown",e=>{
+  unlockAudio(true);
   const k=e.key.toLowerCase();
   keys[k]=true;
   if(["arrowup","arrowdown","arrowleft","arrowright"," ","w","a","s","d"].includes(k))e.preventDefault();
@@ -2340,7 +2342,7 @@ function closePause(){
 function applySetting(k,value){
   SETTINGS[k]=clamp(Number(value)/100,0,1);
   document.getElementById(k+"Val").textContent=Math.round(SETTINGS[k]*100);
-  if(k==="music"&&audio&&audio.theme)audio.theme.volume=SETTINGS.music;
+  if(k==="music"&&audio&&audio.theme){audio.theme.volume=SETTINGS.music;if(SETTINGS.music>0)playTheme();else audio.theme.pause();}
   if(k==="shake"&&SETTINGS.shake===0&&camera)camera.shake=0;
 }
 function syncSettingsUI(){
@@ -5959,9 +5961,12 @@ function win(){
 }
 
 function initAudio(){
-  if(audio)return;
+  if(audio){
+    if(audio.theme)audio.theme.volume=SETTINGS.music;
+    return audio;
+  }
   const theme=document.getElementById("themeAudio");
-  if(theme){theme.volume=SETTINGS.music;}
+  if(theme){theme.volume=SETTINGS.music;theme.loop=true;theme.muted=false;}
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     const ctxA=new AC(),master=ctxA.createGain();
@@ -5970,13 +5975,25 @@ function initAudio(){
     [45,47.3,90].forEach((f,i)=>{const o=ctxA.createOscillator();o.type=i===2?"triangle":"sine";o.frequency.value=f;o.connect(drone);o.start();});
     audio={ctx:ctxA,master,drone,theme};
   }catch(e){audio={theme};}
+  return audio;
 }
 function playTheme(){
-  if(!audio||!audio.theme)return;
+  initAudio();
+  if(!audio||!audio.theme||SETTINGS.music<=0)return;
   try{
-    audio.theme.pause();
-    audio.theme.currentTime=0;
+    audio.theme.volume=SETTINGS.music;
+    audio.theme.loop=true;
+    audio.theme.muted=false;
+    const p=audio.theme.play();
+    if(p&&p.catch)p.catch(()=>{});
   }catch(e){}
+}
+function unlockAudio(startMusic=false){
+  initAudio();
+  if(audio&&audio.ctx&&audio.ctx.state==="suspended"){
+    try{audio.ctx.resume();}catch(e){}
+  }
+  if(startMusic)playTheme();
 }
 function tone(f,d=.12,v=.08,type="sine"){
   if(!audio||!audio.ctx)return;
