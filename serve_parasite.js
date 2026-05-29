@@ -33,7 +33,12 @@ const server = http.createServer((req, res) => {
       res.end("Not found");
       return;
     }
-    res.writeHead(200, { "Content-Type": mime[path.extname(full).toLowerCase()] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": mime[path.extname(full).toLowerCase()] || "application/octet-stream",
+      "Cache-Control": "no-store, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
     res.end(data);
   });
 });

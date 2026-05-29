@@ -32,6 +32,8 @@ button{font-family:inherit}
 #storyNext,#storySkip{height:42px;border-radius:6px;cursor:pointer;font-weight:bold;letter-spacing:2px}
 #storyNext{min-width:190px;border:1px solid #77d7bf;background:rgba(119,215,191,.14);color:#dffdf6}
 #storySkip{min-width:110px;border:1px solid #33434d;background:rgba(255,255,255,.03);color:#7d8993}
+#audioEnable{height:42px;min-width:138px;border-radius:6px;border:1px solid #f2b84b;background:rgba(242,184,75,.13);color:#ffe1a3;font-weight:bold;letter-spacing:2px;cursor:pointer}
+#audioEnable.audioOn{border-color:#77d7bf;background:rgba(119,215,191,.14);color:#dffdf6}
 #storyCount{font-size:10px;color:#6f7d88;letter-spacing:2px;text-transform:uppercase}
 #voiceStatus{font-size:10px;color:#77d7bf;letter-spacing:2px;text-transform:uppercase}
 #modeGrid{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:28px}
@@ -261,6 +263,7 @@ button{font-family:inherit}
         <div id="storyText"></div>
         <div id="storyChoices"></div>
         <div id="storyActions">
+          <button id="audioEnable">AUDIO ON</button>
           <button id="storyNext">BEGIN STORY</button>
           <button id="storySkip">SKIP</button>
           <div id="storyCount"></div>
@@ -998,8 +1001,8 @@ const BOSS_LINES=[
 ];
 
 let S,player,map,actors,particles,camera,last=0,bioTick=0,alertTick=0,heartbeat=0,whisper=0,ambientTick=0,searchPing=0;
-let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false,voiceTicket=0;
-const SETTINGS={music:.36,sfx:1,shake:1};
+let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false,voiceTicket=0,voiceCache=[];
+const SETTINGS={music:.72,sfx:1,shake:1};
 
 function newState(mode){
   const d=DIFFICULTY[mode];
@@ -1677,13 +1680,21 @@ document.querySelectorAll("[data-codex]").forEach(btn=>btn.addEventListener("cli
 });
 document.getElementById("storyNext").addEventListener("click",nextStory);
 document.getElementById("storySkip").addEventListener("click",finishStory);
+document.getElementById("audioEnable").addEventListener("click",()=>{
+  unlockAudio(true,true);
+  speakWithVoiceAgent({speaker:"NARRATOR",text:"Audio online. Voice agent connected.",context:"story",status:document.getElementById("voiceStatus"),onStart:"audio online",onEnd:"audio online"});
+});
 document.getElementById("storyChoices").addEventListener("click",e=>{
   const btn=e.target.closest("[data-instinct]");
   if(btn)chooseStarter(btn.dataset.instinct);
 });
 document.getElementById("sceneNext").addEventListener("click",sceneNext);
 document.getElementById("sceneSkip").addEventListener("click",sceneSkip);
-document.addEventListener("pointerdown",()=>unlockAudio(true),{passive:true});
+document.addEventListener("pointerdown",()=>unlockAudio(true,false),{passive:true});
+if("speechSynthesis" in window){
+  refreshVoiceCache();
+  speechSynthesis.onvoiceschanged=refreshVoiceCache;
+}
 
 addEventListener("keydown",e=>{
   unlockAudio(true);
@@ -1904,6 +1915,11 @@ function speakSceneSynth(shot){
 function speakWithVoiceAgent(opts){
   if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
   const status=opts.status||null;
+  refreshVoiceCache();
+  if(!opts.voiceRetry&&voiceCache.length===0){
+    setTimeout(()=>speakWithVoiceAgent({...opts,voiceRetry:true}),180);
+    return;
+  }
   stopVoice();
   try{
     const profile=voiceProfileForSpeaker(opts.speaker,opts.context);
@@ -1914,7 +1930,7 @@ function speakWithVoiceAgent(opts){
     u.volume=clamp((opts.volume||profile.volume)*SETTINGS.sfx,.05,1);
     const voice=selectHumanLikeVoice(profile);
     if(voice)u.voice=voice;
-    u.onstart=()=>{if(status)status.textContent=opts.onStart||"ai voice agent";voiceAgentCue(profile,opts.context);};
+    u.onstart=()=>{if(status)status.textContent=opts.onStart||("voice: "+(voice?shortVoiceName(voice.name):profile.id));voiceAgentCue(profile,opts.context);};
     u.onend=()=>{if(status)status.textContent=opts.onEnd||"voice agent ready";};
     u.onerror=()=>{if(status)status.textContent="voice blocked";};
     speechSynthesis.speak(u);
@@ -1940,7 +1956,8 @@ function voiceAgentText(text,profile){
   return clean;
 }
 function selectHumanLikeVoice(profile){
-  const voices=("speechSynthesis" in window?speechSynthesis.getVoices():[])||[];
+  refreshVoiceCache();
+  const voices=voiceCache;
   if(!voices.length)return null;
   let best=null,bestScore=-Infinity;
   for(const v of voices){
@@ -1955,6 +1972,14 @@ function selectHumanLikeVoice(profile){
     if(score>bestScore){bestScore=score;best=v;}
   }
   return best;
+}
+function refreshVoiceCache(){
+  if(!("speechSynthesis" in window))return [];
+  try{voiceCache=speechSynthesis.getVoices()||voiceCache||[];}catch(e){}
+  return voiceCache;
+}
+function shortVoiceName(name){
+  return String(name||"agent").replace(/^Microsoft\\s+/i,"").replace(/\\s+Online\\s+\\(Natural\\)/i," natural").replace(/\\s+Online\\s+Natural/i," natural").slice(0,22);
 }
 function voiceAgentCue(profile,context){
   if(!audio||!audio.ctx||context==="dialog")return;
@@ -2342,7 +2367,7 @@ function closePause(){
 function applySetting(k,value){
   SETTINGS[k]=clamp(Number(value)/100,0,1);
   document.getElementById(k+"Val").textContent=Math.round(SETTINGS[k]*100);
-  if(k==="music"&&audio&&audio.theme){audio.theme.volume=SETTINGS.music;if(SETTINGS.music>0)playTheme();else audio.theme.pause();}
+  if(k==="music"&&audio&&audio.theme){audio.theme.volume=SETTINGS.music;if(audio.musicGain)audio.musicGain.gain.value=.075*SETTINGS.music;if(SETTINGS.music>0)playTheme();else audio.theme.pause();}
   if(k==="shake"&&SETTINGS.shake===0&&camera)camera.shake=0;
 }
 function syncSettingsUI(){
@@ -5970,12 +5995,27 @@ function initAudio(){
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     const ctxA=new AC(),master=ctxA.createGain();
-    master.gain.value=.48;master.connect(ctxA.destination);
+    master.gain.value=.78;master.connect(ctxA.destination);
     const drone=ctxA.createGain();drone.gain.value=.028;drone.connect(master);
     [45,47.3,90].forEach((f,i)=>{const o=ctxA.createOscillator();o.type=i===2?"triangle":"sine";o.frequency.value=f;o.connect(drone);o.start();});
-    audio={ctx:ctxA,master,drone,theme};
+    audio={ctx:ctxA,master,drone,theme,musicStarted:false,unlocked:false,tested:false};
   }catch(e){audio={theme};}
   return audio;
+}
+function startProceduralMusic(){
+  if(!audio||!audio.ctx||audio.musicStarted)return;
+  const a=audio.ctx,music=a.createGain(),low=a.createGain(),pulse=a.createGain(),air=a.createGain();
+  music.gain.value=.075*SETTINGS.music;
+  low.gain.value=.42;pulse.gain.value=.12;air.gain.value=.16;
+  music.connect(audio.master);low.connect(music);pulse.connect(music);air.connect(music);
+  [38,57,76].forEach((f,i)=>{const o=a.createOscillator();o.type=i===0?"sine":i===1?"triangle":"sawtooth";o.frequency.value=f;o.connect(low);o.start();});
+  const lfo=a.createOscillator(),lfoGain=a.createGain();
+  lfo.frequency.value=.72;lfoGain.gain.value=.075;lfo.connect(lfoGain);lfoGain.connect(pulse.gain);lfo.start();
+  const p=a.createOscillator();p.type="square";p.frequency.value=1.15;p.connect(pulse);p.start();
+  const buf=a.createBuffer(1,a.sampleRate*2,a.sampleRate),data=buf.getChannelData(0);
+  for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*.22;
+  const src=a.createBufferSource();src.buffer=buf;src.loop=true;src.connect(air);src.start();
+  audio.musicGain=music;audio.musicStarted=true;
 }
 function playTheme(){
   initAudio();
@@ -5988,12 +6028,25 @@ function playTheme(){
     if(p&&p.catch)p.catch(()=>{});
   }catch(e){}
 }
-function unlockAudio(startMusic=false){
+function unlockAudio(startMusic=false,forceTest=false){
   initAudio();
   if(audio&&audio.ctx&&audio.ctx.state==="suspended"){
     try{audio.ctx.resume();}catch(e){}
   }
+  if(audio&&audio.ctx)startProceduralMusic();
+  if(audio&&audio.musicGain)audio.musicGain.gain.value=.075*SETTINGS.music;
   if(startMusic)playTheme();
+  if(audio&&!audio.unlocked){
+    audio.unlocked=true;
+    const b=document.getElementById("audioEnable");
+    if(b){b.classList.add("audioOn");b.textContent="AUDIO LIVE";}
+    const s=document.getElementById("voiceStatus");
+    if(s)s.textContent="audio live";
+  }
+  if(forceTest||audio&&!audio.tested){
+    if(audio)audio.tested=true;
+    sound("audioTest");
+  }
 }
 function tone(f,d=.12,v=.08,type="sine"){
   if(!audio||!audio.ctx)return;
@@ -6026,6 +6079,7 @@ function sound(name){
   if(name==="command"){tone(260,.08,.06,"triangle");setTimeout(()=>tone(390,.12,.04,"triangle"),70);}
   if(name==="spread"){tone(140,.16,.06);setTimeout(()=>tone(190,.18,.05),90);}
   if(name==="blackbox"){tone(260,.12,.06,"triangle");setTimeout(()=>tone(520,.18,.05,"sine"),110);setTimeout(()=>tone(780,.22,.04,"triangle"),230);}
+  if(name==="audioTest"){tone(330,.12,.16,"triangle");setTimeout(()=>tone(660,.16,.13,"sine"),120);setTimeout(()=>tone(990,.2,.1,"triangle"),260);noise(.12,.05);}
   if(name==="door"){tone(90,.22,.1,"square");setTimeout(()=>tone(220,.25,.07),120);}
   if(name==="checkpoint"){tone(210,.12,.06,"triangle");setTimeout(()=>tone(315,.18,.05,"triangle"),90);}
   if(name==="boss"){tone(72,.38,.14,"sawtooth");setTimeout(()=>tone(144,.22,.08,"triangle"),110);noise(.18,.07);}
