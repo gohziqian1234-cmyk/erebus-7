@@ -1012,8 +1012,9 @@ function newState(mode){
     mutation:0,upgrades:{mimic:false,silent:false,pack:false,vent:false,ghost:false,lure:false,brood:false,spoof:false},zoneTerminals:zoneArray(0),
     shells:d.shells,cloneCharges:d.clones,cloneAnchor:null,cloneRespawns:0,
     hideCd:0,hideTime:0,terrorCd:0,ventCd:0,commandCd:0,commandTime:0,decoyCd:0,blindCd:0,sacrificeCd:0,timeLeft:d.timer,
-    directorT:13,eventT:0,eventName:"",scanSurge:0,scanBlind:0,blackout:0,huntPulse:0,lockdown:0,lockdownMission:0,
+    directorT:13,eventT:0,eventName:"",scanSurge:0,scanBlind:0,blackout:0,huntPulse:0,lockdown:0,lockdownMission:0,ambushCd:0,stingerCd:0,heatBand:0,
     lastNoise:null,lastSeen:null,nightmares:[],decoys:[],feedback:[],beats:{},commandUsed:zoneArray(false),specialDone:zoneArray(false),
+    roomDrama:{seen:{},lastKey:"",pulse:0,text:"",color:"#77d7bf"},
     blackboxes:zoneArray(false),blackboxCount:0,
     stepCd:0,externalMusic:false,
     boss:{active:false,anchors:0,total:3,pulse:8,defeated:false},
@@ -1560,7 +1561,7 @@ function saveCheckpoint(reason="Checkpoint saved"){
     zoneInf:[...S.zoneInf],zoneKills:[...S.zoneKills],zoneTerminals:[...S.zoneTerminals],
     mutation:S.mutation,upgrades:{...S.upgrades},shells:S.shells,cloneCharges:S.cloneCharges,cloneAnchor:S.cloneAnchor?{...S.cloneAnchor}:null,cloneRespawns:S.cloneRespawns||0,timeLeft:S.timeLeft,
     commandUsed:[...S.commandUsed],specialDone:[...S.specialDone],lockdownMission:S.lockdownMission,beats:{...S.beats},runTime:S.runTime,chapterTitle:S.chapterTitle,
-    blackboxes:[...S.blackboxes],blackboxCount:S.blackboxCount||0,
+    blackboxes:[...S.blackboxes],blackboxCount:S.blackboxCount||0,roomDrama:S.roomDrama?{seen:{...S.roomDrama.seen},lastKey:S.roomDrama.lastKey||"",text:S.roomDrama.text||"",color:S.roomDrama.color||"#77d7bf"}:null,heatBand:S.heatBand||0,
     boss:{...S.boss},
     terminalStates:(map.terminals||[]).map(t=>!!t.corrupted),
     coreNodeStates:(map.coreNodes||[]).map(n=>!!n.breached),
@@ -1578,9 +1579,10 @@ function loadCheckpoint(){
     zone:cp.zone,zoneInf:[...cp.zoneInf],zoneKills:[...cp.zoneKills],zoneTerminals:[...cp.zoneTerminals],
     mutation:cp.mutation,upgrades:{mimic:false,silent:false,pack:false,vent:false,ghost:false,lure:false,brood:false,spoof:false,...cp.upgrades},shells:cp.shells,cloneCharges:cp.cloneCharges??d.clones,cloneAnchor:cp.cloneAnchor?{...cp.cloneAnchor}:null,cloneRespawns:cp.cloneRespawns||0,timeLeft:cp.timeLeft,
     commandUsed:[...cp.commandUsed],specialDone:cp.specialDone?[...cp.specialDone]:zoneArray(false),blackboxes:cp.blackboxes?[...cp.blackboxes]:zoneArray(false),blackboxCount:cp.blackboxCount||0,lockdownMission:cp.lockdownMission||0,beats:{...cp.beats},runTime:cp.runTime,chapterTitle:cp.chapterTitle,
+    roomDrama:cp.roomDrama?{seen:{...cp.roomDrama.seen},lastKey:cp.roomDrama.lastKey||"",pulse:0,text:cp.roomDrama.text||"",color:cp.roomDrama.color||"#77d7bf"}:{seen:{},lastKey:"",pulse:0,text:"",color:"#77d7bf"},heatBand:cp.heatBand||0,
     detection:0,alert:Math.min(24,S.alert||0),watchers:0,hideCd:0,hideTime:0,terrorCd:0,ventCd:0,commandCd:0,commandTime:0,
     decoyCd:0,blindCd:0,sacrificeCd:0,stepCd:0,
-    directorT:8,eventT:0,eventName:"",scanSurge:0,scanBlind:0,blackout:0,huntPulse:0,lockdown:0,lastNoise:null,lastSeen:null,nightmares:[],decoys:[],feedback:[],
+    directorT:8,eventT:0,eventName:"",scanSurge:0,scanBlind:0,blackout:0,huntPulse:0,lockdown:0,ambushCd:0,stingerCd:0,lastNoise:null,lastSeen:null,nightmares:[],decoys:[],feedback:[],
     boss:{...cp.boss},advanceReport:null,caught:false,won:false,playing:true,paused:false
   });
   map=makeMap(S.zone);
@@ -2583,6 +2585,10 @@ function mapRoomReadout(){
     if(c.crew)bits.push(c.crew+" crew");
     if(c.host)bits.push(c.host+" host");
     if(danger)bits.push(danger+" danger");
+    if(danger>=2)bits.push("B/C first");
+    else if(c.crew&&!danger)bits.push("safe hunt");
+    else if(c.host)bits.push("cover");
+    else if(here&&S.detection>45)bits.push("lay low");
     if(!bits.length)bits.push("clear");
     return {name:r.label,text:bits.join(" / "),score:(here?99:0)+danger*8+c.crew+c.host*2};
   });
@@ -3126,6 +3132,8 @@ function update(dt){
   updateDecoys(dt);
   updateActors(dt);
   updateDetection(dt);
+  updateRoomDrama(dt);
+  updateAdaptiveThreats(dt);
   updateProgress(dt);
   updateNightmares(dt);
   updateFeedback(dt);
@@ -3146,6 +3154,9 @@ function updateCooldowns(dt){
   S.blackout=Math.max(0,S.blackout-dt);
   S.huntPulse=Math.max(0,S.huntPulse-dt);
   S.lockdown=Math.max(0,S.lockdown-dt);
+  S.ambushCd=Math.max(0,(S.ambushCd||0)-dt);
+  S.stingerCd=Math.max(0,(S.stingerCd||0)-dt);
+  if(S.roomDrama)S.roomDrama.pulse=Math.max(0,(S.roomDrama.pulse||0)-dt*.65);
   searchPing=Math.max(0,searchPing-dt);
   if(S.lastNoise){S.lastNoise.t-=dt;if(S.lastNoise.t<=0)S.lastNoise=null;}
   if(S.lastSeen){S.lastSeen.t-=dt;if(S.lastSeen.t<=0)S.lastSeen=null;}
@@ -3250,6 +3261,128 @@ function updateDirector(dt){
     }
   }
   S.directorT=18+Math.random()*12-Math.min(8,S.zone*1.5);
+}
+
+function updateRoomDrama(dt){
+  if(!S.roomDrama)S.roomDrama={seen:{},lastKey:"",pulse:0,text:"",color:"#77d7bf"};
+  const room=currentDramaArea();
+  ambientTick-=dt;
+  if(room&&ambientTick<=0){
+    playRoomAmbient(room);
+    ambientTick=(S.alert>60?1.35:2.4)+Math.random()*(S.blackout>0?1.2:3.4);
+  }
+  if(room){
+    const key=S.zone+"|"+room.label;
+    const profile=roomDramaProfile(room);
+    if(S.roomDrama.lastKey!==key){
+      S.roomDrama.lastKey=key;
+      S.roomDrama.text=profile.short;
+      S.roomDrama.color=profile.color;
+      S.roomDrama.pulse=1.9;
+      if(!S.roomDrama.seen[key])triggerRoomArrival(room,profile,key);
+      else if(S.alert>72&&S.stingerCd<=0){
+        S.stingerCd=3.8;
+        camera.shake=Math.max(camera.shake,5);
+        sound("roomWhisper");
+        feedbackText(player.x,player.y-72,"ROOM REMEMBERS",profile.color);
+      }
+    }
+  }
+  const band=S.watchers>0?3:S.detection>72?2:S.detection>36?1:0;
+  if(band>S.heatBand&&S.stingerCd<=0){
+    S.stingerCd=band===3?2.1:3.1;
+    sound(band===3?"sting":"heartbeat");
+    feedbackText(player.x,player.y-88,band===3?"EYES ON YOU":band===2?"HEAT CRITICAL":"HEAT RISING",band===1?"#f2b84b":"#e5354a");
+  }
+  S.heatBand=band;
+}
+
+function currentDramaArea(){
+  const room=roomAtWorld(player.x,player.y);
+  if(room)return room;
+  if(!map||!map.tiles)return null;
+  const tx=Math.floor(player.x/TILE),ty=Math.floor(player.y/TILE);
+  if(!map.tiles[ty]||!isWalkableTile(map.tiles[ty][tx]))return null;
+  const type=S.zone>=6?"core":S.zone>=5?"command":S.zone>=3?"security":S.zone>=2?"medical":"dark";
+  return {label:"STATION SPINE",type,x:clamp(tx-1,1,map.W-4),y:clamp(ty-1,1,map.H-4),w:3,h:3,corridor:true};
+}
+
+function roomDramaProfile(room){
+  const z=ZONES[S.zone],line=roomLine(room.type,z),name=room.label;
+  let p={title:"ROOM MEMORY",text:"The station records your shape and fails to understand it.",short:name,color:line,sound:"roomWhisper",shake:3,alert:0,noise:0,nightmare:false,dispatch:false,flash:line};
+  if(room.corridor)return {...p,title:"STATION SPINE",text:"The corridor is the ship's throat. Red cones are louder here because there is nowhere soft to hide.",short:"STATION SPINE",color:z.trim,sound:"creak",shake:3,alert:S.zone>1?1:0};
+  if(room.type==="quarters"||room.type==="social")p={...p,title:"CREW MEMORY",text:"Photos, cups, and name tags make the meat feel less anonymous.",short:"CREW MEMORY",color:"#d9a18f",sound:"roomWhisper",shake:2};
+  if(room.type==="engine")p={...p,title:"PIPE KNOCK",text:"Coolant pipes answer your heartbeat. Move before the echo becomes a patrol.",short:"PIPE ECHO",color:"#f2b84b",sound:"pipeKnock",shake:6,alert:2,noise:130};
+  if(room.type==="medical")p={...p,title:"STERILE PANIC",text:"Monitors compare your pulse against dead tissue. Stand still when scanners sweep.",short:"PULSE CHECK",color:"#8ff0d0",sound:"scanner",shake:4,alert:3};
+  if(room.type==="security")p={...p,title:"CAMERA WAKE",text:"One lens moves before the patrol does. Expect a route cut if you stay hot.",short:"CAMERA WAKE",color:"#e5354a",sound:"radio",shake:8,alert:6,noise:160,dispatch:true};
+  if(room.type==="green")p={...p,title:"SPORE BREATH",text:"The garden inhales with you. Noise travels through roots here.",short:"SPORE BREATH",color:"#8fd66d",sound:"roomWhisper",shake:5,alert:3,nightmare:true};
+  if(room.type==="command")p={...p,title:"DEAD COMMAND",text:"Old officers repeat orders through damaged speakers. SELENE still trusts the room.",short:"COMMAND ECHO",color:"#c6d7ff",sound:"radio",shake:5,alert:4,dispatch:S.alert>40};
+  if(room.type==="core")p={...p,title:"SELENE FOCUS",text:"The floor predicts where you wanted to hide. Break its anchors before it learns you.",short:"SELENE FOCUS",color:"#7da7ff",sound:"sting",shake:9,alert:6,nightmare:true,dispatch:true};
+  if(room.type==="dark"||/MORGUE|BLACKBOX|HOLDING|COLD/i.test(name))p={...p,title:"COLD ROOM",text:"Nothing here breathes, but something still knows you entered.",short:"COLD ROOM",color:"#7da7ff",sound:"creak",shake:5,alert:2,nightmare:S.infected>0};
+  return p;
+}
+
+function triggerRoomArrival(room,profile,key){
+  S.roomDrama.seen[key]=true;
+  const c=roomCenterWorld(room);
+  S.roomDrama.text=profile.short;
+  S.roomDrama.color=profile.color;
+  S.roomDrama.pulse=2.25;
+  camera.shake=Math.max(camera.shake,profile.shake||3);
+  flash(profile.flash||profile.color,.10,.12);
+  sound(profile.sound||"roomWhisper");
+  feedbackText(c.x,c.y-50,profile.short,profile.color);
+  if(profile.alert)S.alert=Math.min(100,S.alert+profile.alert);
+  if(profile.noise&&(S.infected>0||S.alert>26))makeNoise(c.x,c.y,profile.noise,profile.title.toLowerCase());
+  if(profile.nightmare&&S.zone>0&&S.infected>0)spawnNightmare();
+  if(profile.dispatch&&S.zone>=3)dispatchThreatToPoint(c,profile.title.toLowerCase(),1.05);
+  notify(profile.title+": "+profile.text);
+}
+
+function playRoomAmbient(room){
+  const type=room.type,label=room.label;
+  if(S.watchers>0&&Math.random()<.45){sound("heartbeat");return;}
+  if(S.blackout>0&&Math.random()<.55){sound("creak");return;}
+  if(type==="engine")sound(Math.random()<.55?"pipeKnock":"creak");
+  else if(type==="medical")sound(Math.random()<.6?"scanner":"roomWhisper");
+  else if(type==="security"||type==="command")sound(Math.random()<.55?"radio":"scanner");
+  else if(type==="green")sound(Math.random()<.55?"roomWhisper":"creak");
+  else if(type==="core")sound(Math.random()<.65?"sting":"scanner");
+  else if(type==="dark"||/MORGUE|BLACKBOX|HOLDING|COLD/i.test(label))sound(Math.random()<.7?"creak":"roomWhisper");
+  else sound(Math.random()<.55?"roomWhisper":"creak");
+}
+
+function updateAdaptiveThreats(dt){
+  if(S.zone===0||S.ambushCd>0||S.hideTime>0||S.caught||S.won)return;
+  const danger=S.detection+S.alert*.55+S.watchers*18+(S.lastNoise?9:0)+(player.moving?5:0);
+  if(danger<82)return;
+  const room=roomAtWorld(player.x,player.y),obj=currentObjective();
+  const point=room&&S.watchers>0?roomExitIntercept(room,obj):routeInterceptPoint(obj);
+  const threat=dispatchThreatToPoint(point,"adaptive flank",danger>112?1.8:1.15);
+  if(!threat)return;
+  S.ambushCd=S.difficulty==="hard"?8.2:S.difficulty==="medium"?11.5:14.5;
+  S.eventT=2.7;S.eventName="FLANK ROUTE";
+  S.alert=Math.min(100,S.alert+5);
+  camera.shake=Math.max(camera.shake,7);
+  feedbackText(threat.x,threat.y-48,"FLANKING",actorRoleColor(threat));
+  notify("FLANK ROUTE: "+actorRole(threat)+" is cutting off your escape. Use C host command, B blind, Z clone, or a vent.");
+  sound("search");
+}
+
+function roomCenterWorld(room){
+  return safeWorldPoint(Math.floor(room.x+room.w/2),Math.floor(room.y+room.h/2));
+}
+
+function roomExitIntercept(room,obj=currentObjective()){
+  const candidates=[
+    {x:room.x+Math.floor(room.w/2),y:room.y-1},
+    {x:room.x+Math.floor(room.w/2),y:room.y+room.h},
+    {x:room.x-1,y:room.y+Math.floor(room.h/2)},
+    {x:room.x+room.w,y:room.y+Math.floor(room.h/2)}
+  ].map(p=>safeWorldPoint(p.x,p.y));
+  const target=obj||{x:player.x,y:player.y};
+  candidates.sort((a,b)=>dist(a.x,a.y,target.x,target.y)+dist(a.x,a.y,player.x,player.y)*.25-(dist(b.x,b.y,target.x,target.y)+dist(b.x,b.y,player.x,player.y)*.25));
+  return {x:candidates[0].x,y:candidates[0].y,label:"ROOM EXIT CUT",kind:"intercept",priority:2.5};
 }
 
 function nearestThreat(){
@@ -3879,6 +4012,7 @@ function draw(){
   drawPlayer();
   drawFeedback();
   drawHorror();
+  drawRoomDramaFX();
   drawLighting();
   drawCinematicPostFX();
   drawBossMeter();
@@ -5736,6 +5870,50 @@ function drawHorror(){
     ctx.restore();
   }
 }
+function drawRoomDramaFX(){
+  if(!S||!S.roomDrama||S.roomDrama.pulse<=0)return;
+  const room=currentDramaArea(),p=clamp(S.roomDrama.pulse/2.25,0,1),color=S.roomDrama.color||"#77d7bf";
+  ctx.save();
+  if(room){
+    const x=room.x*TILE-camera.x,y=room.y*TILE-camera.y,w=room.w*TILE,h=room.h*TILE;
+    ctx.globalAlpha=.12*p;
+    ctx.fillStyle=color;
+    roundedRect(x+8,y+8,w-16,h-16,12);
+    ctx.fill();
+    ctx.globalAlpha=.55*p;
+    ctx.strokeStyle=color;
+    ctx.shadowColor=color;
+    ctx.shadowBlur=18;
+    ctx.lineWidth=2.5;
+    roundedRect(x+12,y+12,w-24,h-24,10);
+    ctx.stroke();
+    ctx.shadowBlur=0;
+  }
+  const text=S.roomDrama.text||"ROOM MEMORY";
+  const y=Math.max(150,Math.min(H-142,H*.78));
+  ctx.globalAlpha=.92*p;
+  ctx.font="bold 11px Courier New";
+  ctx.textAlign="center";
+  const w=Math.min(360,ctx.measureText(text).width+48);
+  ctx.fillStyle="rgba(1,5,7,.74)";
+  ctx.strokeStyle=hexGlow(color,.45);
+  ctx.shadowColor=color;
+  ctx.shadowBlur=16;
+  roundedRect(W/2-w/2,y-18,w,29,8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur=0;
+  ctx.fillStyle=color;
+  ctx.fillText(text,W/2,y+1);
+  ctx.globalAlpha=.30*p;
+  ctx.strokeStyle=color;
+  ctx.lineWidth=2;
+  for(let i=0;i<5;i++){
+    const yy=y+22+i*7;
+    ctx.beginPath();ctx.moveTo(W/2-w/2+16,yy);ctx.lineTo(W/2+w/2-16,yy+Math.sin(performance.now()/120+i)*3);ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawLighting(){
   if(!S||!player)return;
   const px=player.x-camera.x,py=player.y-camera.y;
@@ -6070,6 +6248,11 @@ function sound(name){
   if(name==="alert"){tone(620,.14,.09,"sawtooth");setTimeout(()=>tone(410,.16,.07,"sawtooth"),130);}
   if(name==="search"){tone(510,.06,.055,"triangle");setTimeout(()=>tone(330,.08,.04,"triangle"),90);}
   if(name==="listener"){tone(920,.08,.035,"sine");setTimeout(()=>tone(460,.12,.03,"sine"),90);}
+  if(name==="heartbeat"){tone(48,.09,.12,"sine");setTimeout(()=>tone(42,.11,.09,"sine"),140);}
+  if(name==="sting"){tone(980,.055,.11,"sawtooth");setTimeout(()=>tone(118,.24,.09,"triangle"),65);noise(.08,.05);}
+  if(name==="radio"){tone(420,.035,.035,"square");setTimeout(()=>tone(260,.045,.028,"square"),55);noise(.09,.025);}
+  if(name==="pipeKnock"){tone(88,.12,.09,"square");setTimeout(()=>tone(72,.16,.07,"triangle"),170);}
+  if(name==="roomWhisper"){noise(.22,.038);setTimeout(()=>tone(190+Math.random()*90,.08,.018,"sine"),80);}
   if(name==="alarm"){tone(760,.18,.1,"sawtooth");setTimeout(()=>tone(510,.2,.09,"sawtooth"),180);noise(.25,.07);}
   if(name==="whisper"){noise(.16,.03);tone(180+Math.random()*80,.08,.018,"sine");}
   if(name==="creak"){noise(.2,.025);tone(70+Math.random()*24,.18,.018,"sine");}
