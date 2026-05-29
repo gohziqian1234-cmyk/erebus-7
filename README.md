@@ -36,6 +36,12 @@ Release sweep passed:
 - tactical map side-panel checks
 - syntax validation
 
+## Recorded Voice Pack
+
+The game supports real recorded voiceover clips in the `voice/` folder. If a matching clip exists, it plays that recording instead of browser speech. If not, it falls back automatically.
+
+See `voice/README.md` for file names like `story-01.mp3`, `prologue-01.mp3`, and `chapter-01-01.mp3`.
+
 ## Publishing
 
 For GitHub Pages, upload these files:
@@ -45,5 +51,6 @@ For GitHub Pages, upload these files:
 - `parasite_theme.mp4`
 - `serve_parasite.js`
 - `README.md`
+- `voice/README.md`
 
 Then enable GitHub Pages from the repository settings using the main branch root folder.

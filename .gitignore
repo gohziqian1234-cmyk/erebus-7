@@ -2,3 +2,4 @@ edge-*-profile*/
 server-out.log
 server-err.log
 qa-*.png
+voice_reference_source.mp4

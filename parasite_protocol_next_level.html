@@ -244,6 +244,7 @@ button{font-family:inherit}
 <body>
 <canvas id="game"></canvas>
 <audio id="themeAudio" src="parasite_theme.mp4" preload="auto" loop></audio>
+<audio id="voiceAudio" preload="auto"></audio>
 <div id="ui">
   <div id="vignette"></div>
   <div id="scanlines"></div>
@@ -997,7 +998,7 @@ const BOSS_LINES=[
 ];
 
 let S,player,map,actors,particles,camera,last=0,bioTick=0,alertTick=0,heartbeat=0,whisper=0,ambientTick=0,searchPing=0;
-let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false;
+let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false,voiceTicket=0;
 const SETTINGS={music:.36,sfx:1,shake:1};
 
 function newState(mode){
@@ -1801,6 +1802,11 @@ function showDifficultySelect(){
 }
 function speakStory(text){
   const status=document.getElementById("voiceStatus");
+  const key="story-"+String(storyIndex+1).padStart(2,"0");
+  if(playRecordedVoice(key,{status,onStart:"recorded voice",onEnd:"voice ready",onMissing:()=>speakStorySynth(text,status)}))return;
+  speakStorySynth(text,status);
+}
+function speakStorySynth(text,status){
   if(!("speechSynthesis" in window)){
     status.textContent="voice unavailable";
     return;
@@ -1834,6 +1840,9 @@ function speakDialogLine(line){
 }
 function stopVoice(){
   if("speechSynthesis" in window)speechSynthesis.cancel();
+  const v=document.getElementById("voiceAudio");
+  if(v){try{v.pause();v.removeAttribute("src");v.load();}catch(e){}}
+  voiceTicket++;
 }
 
 function openScene(data,onDone=null,opts={}){
@@ -1877,6 +1886,11 @@ function renderScene(){
   speakSceneLine(shot);
 }
 function speakSceneLine(shot){
+  const key=sceneVoiceKey(scene&&scene.data,scene?scene.index:0);
+  if(key&&playRecordedVoice(key,{onMissing:()=>speakSceneSynth(shot)}))return;
+  speakSceneSynth(shot);
+}
+function speakSceneSynth(shot){
   if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
   try{
     speechSynthesis.cancel();
@@ -1889,6 +1903,44 @@ function speakSceneLine(shot){
     if(preferred)u.voice=preferred;
     speechSynthesis.speak(u);
   }catch(e){}
+}
+function playRecordedVoice(key,opts={}){
+  if(!key||!SETTINGS.sfx)return false;
+  const el=document.getElementById("voiceAudio");
+  if(!el)return false;
+  const ticket=++voiceTicket;
+  const status=opts.status||null;
+  const files=["mp3","wav","ogg","m4a","mp4"].map(ext=>"voice/"+key+"."+ext);
+  let i=0,started=false;
+  const finishMissing=()=>{if(ticket!==voiceTicket||started)return;if(status)status.textContent="recorded voice missing";if(opts.onMissing)opts.onMissing();};
+  const tryNext=()=>{
+    if(ticket!==voiceTicket||started)return;
+    if(i>=files.length){finishMissing();return;}
+    const src=files[i++];
+    el.onerror=tryNext;
+    el.onplay=()=>{started=true;if(status)status.textContent=opts.onStart||"recorded voice";};
+    el.onended=()=>{if(ticket===voiceTicket&&status)status.textContent=opts.onEnd||"voice ready";};
+    el.volume=.72*SETTINGS.sfx;
+    try{
+      el.src=src;
+      const p=el.play();
+      if(p&&p.catch)p.catch(()=>tryNext());
+    }catch(e){tryNext();}
+  };
+  stopVoice();
+  voiceTicket=ticket;
+  tryNext();
+  return true;
+}
+function sceneVoiceKey(data,index){
+  if(!data)return null;
+  const n=String((index||0)+1).padStart(2,"0");
+  if(data===PROLOGUE_SCENE)return "prologue-"+n;
+  const ci=CHAPTER_SCENES.indexOf(data);
+  if(ci>=0)return "chapter-"+String(ci+1).padStart(2,"0")+"-"+n;
+  const bi=BLACKBOX_FRAGMENTS.indexOf(data);
+  if(bi>=0)return "blackbox-"+String(bi+1).padStart(2,"0")+"-"+n;
+  return null;
 }
 function drawSceneCanvas(data,shot,i){
   const c=document.getElementById("sceneCanvas"),g=c.getContext("2d"),w=c.width,h=c.height,t=performance.now()/1000;
