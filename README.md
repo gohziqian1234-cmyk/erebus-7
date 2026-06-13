@@ -1,4 +1,6 @@
-# Parasite Protocol
+# Erebus-7: First Skin
+
+![Erebus-7: First Skin key art](assets/erebus-7-first-skin-key-art.png)
 
 Single-player social-horror prototype inspired by deduction games, built as a standalone HTML canvas game.
 
@@ -50,6 +52,7 @@ For GitHub Pages, upload these files:
 
 - `index.html`
 - `parasite_protocol_next_level.html`
+- `assets/erebus-7-first-skin-key-art.png`
 - `parasite_theme.mp4`
 - `serve_parasite.js`
 - `README.md`
