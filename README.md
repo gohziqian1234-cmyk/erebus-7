@@ -1,8 +1,18 @@
 # Erebus-7: First Skin
 
+[Play online](https://gohziqian1234-cmyk.github.io/erebus-7/)
+
 ![Erebus-7: First Skin key art](assets/erebus-7-first-skin-key-art.png)
 
 Single-player social-horror prototype inspired by deduction games, built as a standalone HTML canvas game.
+
+## Play Online
+
+Open the public GitHub Pages build:
+
+```text
+https://gohziqian1234-cmyk.github.io/erebus-7/
+```
 
 ## Play Locally
 
