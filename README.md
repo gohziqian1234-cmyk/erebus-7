@@ -48,7 +48,7 @@ See `voice/README.md` for file names like `story-01.mp3`, `prologue-01.mp3`, and
 
 ## Publishing
 
-For GitHub Pages, upload these files:
+For GitHub Pages, upload these files to the repository root:
 
 - `index.html`
 - `parasite_protocol_next_level.html`
@@ -57,5 +57,19 @@ For GitHub Pages, upload these files:
 - `serve_parasite.js`
 - `README.md`
 - `voice/README.md`
+- `.nojekyll`
 
-Then enable GitHub Pages from the repository settings using the main branch root folder.
+Then enable GitHub Pages:
+
+1. Open the repository on GitHub.
+2. Go to `Settings`.
+3. Open `Pages`.
+4. Set source to `Deploy from a branch`.
+5. Pick `main` or `master`, then `/root`.
+6. Save.
+
+The public play URL will look like:
+
+```text
+https://YOUR-GITHUB-USERNAME.github.io/YOUR-REPOSITORY-NAME/
+```
