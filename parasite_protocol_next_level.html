@@ -32,14 +32,15 @@ button{font-family:inherit}
 .storyChoice:hover{border-color:#77d7bf;background:rgba(119,215,191,.11)}
 .storyChoice strong{display:block;color:#dffdf6;font-size:12px;letter-spacing:2px;margin-bottom:7px}
 .storyChoice span{display:block;color:#9aa6b2;font-size:11px;line-height:1.45}
-#storyActions{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:28px}
+#storyActions{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:28px;flex-wrap:wrap}
 #storyNext,#storySkip{height:42px;border-radius:6px;cursor:pointer;font-weight:bold;letter-spacing:2px}
 #storyNext{min-width:190px;border:1px solid #77d7bf;background:rgba(119,215,191,.14);color:#dffdf6}
 #storySkip{min-width:110px;border:1px solid #33434d;background:rgba(255,255,255,.03);color:#7d8993}
 #audioEnable{height:42px;min-width:138px;border-radius:6px;border:1px solid #f2b84b;background:rgba(242,184,75,.13);color:#ffe1a3;font-weight:bold;letter-spacing:2px;cursor:pointer}
 #audioEnable.audioOn{border-color:#77d7bf;background:rgba(119,215,191,.14);color:#dffdf6}
 #storyCount{font-size:10px;color:#6f7d88;letter-spacing:2px;text-transform:uppercase}
-#voiceStatus{font-size:10px;color:#77d7bf;letter-spacing:2px;text-transform:uppercase}
+#voiceStatus{min-width:130px;font-size:10px;color:#77d7bf;letter-spacing:2px;text-transform:uppercase}
+#voiceStatus.audioWarn{color:#f2b84b}
 #modeGrid{display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:28px}
 #modeGrid.ready{display:grid}
 #modeIntro{display:none;margin-top:22px;color:#dffdf6;font-size:13px;letter-spacing:3px;text-transform:uppercase}
@@ -267,11 +268,11 @@ button{font-family:inherit}
         <div id="storyText"></div>
         <div id="storyChoices"></div>
         <div id="storyActions">
-          <button id="audioEnable">AUDIO ON</button>
+          <button id="audioEnable">START AUDIO</button>
           <button id="storyNext">BEGIN STORY</button>
           <button id="storySkip">SKIP</button>
           <div id="storyCount"></div>
-          <div id="voiceStatus">voice agent ready</div>
+          <div id="voiceStatus">audio standby</div>
         </div>
       </div>
       <div id="modeIntro">SELECT DIFFICULTY</div>
@@ -908,6 +909,7 @@ const PROLOGUE_SCENE={
     {speaker:"MISSION",line:"Reach the AI Core before SELENE catches you. Break its defenses, then infect the AI to control the station.",focus:"core",tone:"#77d7bf"}
   ]
 };
+const RECORDED_VOICE_KEYS=new Set([]);
 
 const CHAPTER_SCENES=[
   {kicker:"CHAPTER I",title:"FIRST SKIN",mood:"quarters",color:"#77d7bf",shots:[
@@ -1005,8 +1007,9 @@ const BOSS_LINES=[
 ];
 
 let S,player,map,actors,particles,camera,last=0,bioTick=0,alertTick=0,heartbeat=0,whisper=0,ambientTick=0,searchPing=0;
-let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false,voiceTicket=0,voiceCache=[];
-const SETTINGS={music:.72,sfx:1,shake:1};
+let audio=null,dialog=null,scene=null,tutIndex=0,storyIndex=0,noticeTimer=null,storyDone=false,storyStarted=false,codexTab="brief",starterInstinct="shadow",starterChosen=false,voiceTicket=0,voiceCache=[],audioResumePromise=null;
+const SETTINGS={music:.52,sfx:1,shake:1};
+const MUSIC_GAIN_BASE=.07;
 
 function newState(mode){
   const d=DIFFICULTY[mode];
@@ -1684,10 +1687,10 @@ document.querySelectorAll("[data-codex]").forEach(btn=>btn.addEventListener("cli
   const el=document.getElementById(k+"Slider");
   el.addEventListener("input",()=>applySetting(k,el.value));
 });
-document.getElementById("storyNext").addEventListener("click",nextStory);
+document.getElementById("storyNext").addEventListener("click",()=>{beginIntroAudio(true);nextStory();});
 document.getElementById("storySkip").addEventListener("click",finishStory);
 document.getElementById("audioEnable").addEventListener("click",()=>{
-  unlockAudio(true,true);
+  beginIntroAudio(true);
   speakWithVoiceAgent({speaker:"NARRATOR",text:"Audio online. Voice agent connected.",context:"story",status:document.getElementById("voiceStatus"),onStart:"audio online",onEnd:"audio online"});
 });
 document.getElementById("storyChoices").addEventListener("click",e=>{
@@ -1768,11 +1771,13 @@ function showStory(say=false){
   document.getElementById("storyText").textContent=s[1];
   document.getElementById("storyCount").textContent=(storyIndex+1)+" / "+STORY.length;
   document.getElementById("storyNext").textContent=!storyStarted?"START TRANSMISSION":storyIndex<STORY.length-1?"NEXT TRANSMISSION":"CHOOSE MODE";
-  if(say)speakStory(s[0]+". "+s[1]);
+  if(say){
+    beginIntroAudio(false);
+    speakStory(s[0]+". "+s[1]);
+  }
 }
 function nextStory(){
-  initAudio();
-  playTheme();
+  beginIntroAudio(!storyStarted);
   if(!storyStarted){
     storyStarted=true;
     sound("door");
@@ -1816,8 +1821,7 @@ function showDifficultySelect(){
   document.getElementById("introInner").classList.add("modeSelect");
   document.getElementById("modeGrid").classList.add("ready");
   document.getElementById("modeIntro").classList.add("ready");
-  initAudio();
-  playTheme();
+  beginIntroAudio(false);
 }
 function speakStory(text){
   const status=document.getElementById("voiceStatus");
@@ -1826,7 +1830,7 @@ function speakStory(text){
   speakStoryAgent(text,status);
 }
 function speakStoryAgent(text,status){
-  speakWithVoiceAgent({speaker:"NARRATOR",text,status,context:"story",onStart:"ai voice agent",onEnd:"voice agent ready"});
+  speakWithVoiceAgent({speaker:"NARRATOR",text,status,context:"story",volume:.95,onStart:"ai voice agent",onEnd:"voice agent ready"});
 }
 function speakStorySynth(text,status){
   if(!("speechSynthesis" in window)){
@@ -1837,7 +1841,7 @@ function speakStorySynth(text,status){
   try{
     const clean=text.replace(/\[|\]/g,"");
     const u=new SpeechSynthesisUtterance(clean);
-    u.rate=.82;u.pitch=.62;u.volume=.7;
+    u.rate=.82;u.pitch=.62;u.volume=.9;
     const voices=speechSynthesis.getVoices();
     const preferred=voices.find(v=>/english/i.test(v.lang)&&/male|david|mark|george|daniel/i.test(v.name))||voices.find(v=>/english/i.test(v.lang));
     if(preferred)u.voice=preferred;
@@ -1847,7 +1851,7 @@ function speakStorySynth(text,status){
   }catch(e){status.textContent="voice blocked";}
 }
 function speakDialogLine(line){
-  speakWithVoiceAgent({speaker:line[0],text:line[1],context:"dialog",volume:.34});
+  speakWithVoiceAgent({speaker:line[0],text:line[1],context:"dialog",volume:.58});
 }
 function stopVoice(){
   if("speechSynthesis" in window)speechSynthesis.cancel();
@@ -1857,6 +1861,7 @@ function stopVoice(){
 }
 
 function openScene(data,onDone=null,opts={}){
+  beginIntroAudio(false);
   scene={data,index:0,onDone,pause:opts.pause!==false,restorePaused:S?S.paused:false};
   if(S&&scene.pause)S.paused=true;
   document.getElementById("sceneOverlay").style.display="flex";
@@ -1866,6 +1871,7 @@ function openScene(data,onDone=null,opts={}){
 }
 function sceneNext(){
   if(!scene)return;
+  beginIntroAudio(false);
   if(scene.index<scene.data.shots.length-1){
     scene.index++;
     renderScene();
@@ -1902,7 +1908,7 @@ function speakSceneLine(shot){
   speakSceneAgent(shot);
 }
 function speakSceneAgent(shot){
-  speakWithVoiceAgent({speaker:shot.speaker||"BLACKBOX",text:shot.line||"",context:"scene",volume:.46});
+  speakWithVoiceAgent({speaker:shot.speaker||"BLACKBOX",text:shot.line||"",context:"scene",volume:.86});
 }
 function speakSceneSynth(shot){
   if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
@@ -1911,7 +1917,7 @@ function speakSceneSynth(shot){
     const u=new SpeechSynthesisUtterance((shot.speaker||"Blackbox")+". "+(shot.line||""));
     u.rate=(shot.speaker==="THE PARASITE"||shot.speaker==="YOU")?.68:shot.speaker==="SELENE"?.74:.86;
     u.pitch=(shot.speaker==="THE PARASITE"||shot.speaker==="YOU")?.42:shot.speaker==="SELENE"?.58:.82;
-    u.volume=.45*SETTINGS.sfx;
+    u.volume=.78*SETTINGS.sfx;
     const voices=speechSynthesis.getVoices();
     const preferred=voices.find(v=>/english/i.test(v.lang)&&/david|mark|george|daniel|zira/i.test(v.name))||voices.find(v=>/english/i.test(v.lang));
     if(preferred)u.voice=preferred;
@@ -1921,8 +1927,10 @@ function speakSceneSynth(shot){
 function speakWithVoiceAgent(opts){
   if(!("speechSynthesis" in window)||!SETTINGS.sfx)return;
   const status=opts.status||null;
+  primeVoiceAgent();
   refreshVoiceCache();
   if(!opts.voiceRetry&&voiceCache.length===0){
+    if(status)status.textContent="voice loading";
     setTimeout(()=>speakWithVoiceAgent({...opts,voiceRetry:true}),180);
     return;
   }
@@ -1936,22 +1944,24 @@ function speakWithVoiceAgent(opts){
     u.volume=clamp((opts.volume||profile.volume)*SETTINGS.sfx,.05,1);
     const voice=selectHumanLikeVoice(profile);
     if(voice)u.voice=voice;
-    u.onstart=()=>{if(status)status.textContent=opts.onStart||("voice: "+(voice?shortVoiceName(voice.name):profile.id));voiceAgentCue(profile,opts.context);};
+    let started=false;
+    u.onstart=()=>{started=true;if(status)status.textContent=opts.onStart||("voice: "+(voice?shortVoiceName(voice.name):profile.id));voiceAgentCue(profile,opts.context);};
     u.onend=()=>{if(status)status.textContent=opts.onEnd||"voice agent ready";};
-    u.onerror=()=>{if(status)status.textContent="voice blocked";};
+    u.onerror=()=>{if(status)status.textContent="voice blocked";voiceAgentCue(profile,opts.context);};
     speechSynthesis.speak(u);
+    setTimeout(()=>{if(!started&&status)status.textContent="voice starting";},650);
   }catch(e){
     if(status)status.textContent="voice blocked";
   }
 }
 function voiceProfileForSpeaker(speaker="",context="scene"){
   const s=String(speaker).toUpperCase();
-  if(/YOU|PARASITE|HOST SIGNAL/.test(s))return {id:"parasite",rate:.66,pitch:.44,volume:.44,hints:["Guy","Ryan","Brian","Davis","Daniel","Mark","David"],avoid:["Zira","Jenny","Aria"]};
-  if(/SELENE|AI/.test(s))return {id:"selene",rate:.72,pitch:.58,volume:.44,hints:["Ava","Aria","Jenny","Sonia","Zira","Libby","Emma"],avoid:["David"]};
-  if(/HUNTER|COMMANDER|ADMIRAL|SECURITY/.test(s))return {id:"command",rate:.78,pitch:.56,volume:.42,hints:["Guy","Davis","Ryan","George","Daniel","Mark"],avoid:["Zira"]};
-  if(/DR\\.|YUNA|MED|BOTANIST|SATO/.test(s))return {id:"doctor",rate:.84,pitch:.86,volume:.44,hints:["Jenny","Aria","Ava","Sonia","Zira","Libby","Emma"],avoid:[]};
-  if(/BLACKBOX|NARRATOR|MISSION|SITUATION|OBJECTIVE|WHY|RESULT/.test(s)||context==="story")return {id:"narrator",rate:.76,pitch:.68,volume:.58,hints:["Guy","Jenny","Aria","Davis","Ryan","Brian","Daniel","Mark","George"],avoid:[]};
-  return {id:"crew",rate:.84,pitch:.80,volume:.38,hints:["Jenny","Aria","Guy","Davis","Zira","David"],avoid:[]};
+  if(/YOU|PARASITE|HOST SIGNAL/.test(s))return {id:"parasite",rate:.66,pitch:.44,volume:.78,hints:["Guy","Ryan","Brian","Davis","Daniel","Mark","David"],avoid:["Zira","Jenny","Aria"]};
+  if(/SELENE|AI/.test(s))return {id:"selene",rate:.72,pitch:.58,volume:.76,hints:["Ava","Aria","Jenny","Sonia","Zira","Libby","Emma"],avoid:["David"]};
+  if(/HUNTER|COMMANDER|ADMIRAL|SECURITY/.test(s))return {id:"command",rate:.78,pitch:.56,volume:.74,hints:["Guy","Davis","Ryan","George","Daniel","Mark"],avoid:["Zira"]};
+  if(/DR\\.|YUNA|MED|BOTANIST|SATO/.test(s))return {id:"doctor",rate:.84,pitch:.86,volume:.8,hints:["Jenny","Aria","Ava","Sonia","Zira","Libby","Emma"],avoid:[]};
+  if(/BLACKBOX|NARRATOR|MISSION|SITUATION|OBJECTIVE|WHY|RESULT/.test(s)||context==="story")return {id:"narrator",rate:.76,pitch:.68,volume:.92,hints:["Guy","Jenny","Aria","Davis","Ryan","Brian","Daniel","Mark","George"],avoid:[]};
+  return {id:"crew",rate:.84,pitch:.80,volume:.68,hints:["Jenny","Aria","Guy","Davis","Zira","David"],avoid:[]};
 }
 function voiceAgentText(text,profile){
   let clean=String(text||"").replace(/\[|\]/g,"").replace(/\\s+/g," ").trim();
@@ -1995,6 +2005,7 @@ function voiceAgentCue(profile,context){
 }
 function playRecordedVoice(key,opts={}){
   if(!key||!SETTINGS.sfx)return false;
+  if(!RECORDED_VOICE_KEYS.has(key))return false;
   const el=document.getElementById("voiceAudio");
   if(!el)return false;
   const ticket=++voiceTicket;
@@ -2009,7 +2020,7 @@ function playRecordedVoice(key,opts={}){
     el.onerror=tryNext;
     el.onplay=()=>{started=true;if(status)status.textContent=opts.onStart||"recorded voice";};
     el.onended=()=>{if(ticket===voiceTicket&&status)status.textContent=opts.onEnd||"voice ready";};
-    el.volume=.72*SETTINGS.sfx;
+    el.volume=.9*SETTINGS.sfx;
     try{
       el.src=src;
       const p=el.play();
@@ -2373,7 +2384,7 @@ function closePause(){
 function applySetting(k,value){
   SETTINGS[k]=clamp(Number(value)/100,0,1);
   document.getElementById(k+"Val").textContent=Math.round(SETTINGS[k]*100);
-  if(k==="music"&&audio&&audio.theme){audio.theme.volume=SETTINGS.music;if(audio.musicGain)audio.musicGain.gain.value=.075*SETTINGS.music;if(SETTINGS.music>0)playTheme();else audio.theme.pause();}
+  if(k==="music"&&audio&&audio.theme){audio.theme.volume=SETTINGS.music;if(audio.musicGain)audio.musicGain.gain.value=MUSIC_GAIN_BASE*SETTINGS.music;if(SETTINGS.music>0)playTheme();else audio.theme.pause();}
   if(k==="shake"&&SETTINGS.shake===0&&camera)camera.shake=0;
 }
 function syncSettingsUI(){
@@ -6167,6 +6178,31 @@ function win(){
   openScene(winScene(score,rank,best),()=>{document.getElementById("ending").style.display="flex";},{pause:false});
 }
 
+function setAudioStatus(text,warn=false){
+  const s=document.getElementById("voiceStatus");
+  if(!s)return;
+  s.textContent=text;
+  s.classList.toggle("audioWarn",!!warn);
+}
+function primeVoiceAgent(){
+  if(!("speechSynthesis" in window))return;
+  try{
+    refreshVoiceCache();
+    if(speechSynthesis.resume)speechSynthesis.resume();
+  }catch(e){}
+}
+function beginIntroAudio(forceTest=false){
+  const introVisible=document.getElementById("intro").style.display!=="none";
+  if(introVisible){
+    if(SETTINGS.music<.35)SETTINGS.music=.52;
+    if(SETTINGS.sfx<.55)SETTINGS.sfx=1;
+  }
+  initAudio();
+  primeVoiceAgent();
+  unlockAudio(true,forceTest);
+  playTheme();
+  return audio;
+}
 function initAudio(){
   if(audio){
     if(audio.theme)audio.theme.volume=SETTINGS.music;
@@ -6177,8 +6213,8 @@ function initAudio(){
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
     const ctxA=new AC(),master=ctxA.createGain();
-    master.gain.value=.78;master.connect(ctxA.destination);
-    const drone=ctxA.createGain();drone.gain.value=.028;drone.connect(master);
+    master.gain.value=.9;master.connect(ctxA.destination);
+    const drone=ctxA.createGain();drone.gain.value=.018;drone.connect(master);
     [45,47.3,90].forEach((f,i)=>{const o=ctxA.createOscillator();o.type=i===2?"triangle":"sine";o.frequency.value=f;o.connect(drone);o.start();});
     audio={ctx:ctxA,master,drone,theme,musicStarted:false,unlocked:false,tested:false};
   }catch(e){audio={theme};}
@@ -6187,8 +6223,8 @@ function initAudio(){
 function startProceduralMusic(){
   if(!audio||!audio.ctx||audio.musicStarted)return;
   const a=audio.ctx,music=a.createGain(),low=a.createGain(),pulse=a.createGain(),air=a.createGain();
-  music.gain.value=.075*SETTINGS.music;
-  low.gain.value=.42;pulse.gain.value=.12;air.gain.value=.16;
+  music.gain.value=MUSIC_GAIN_BASE*SETTINGS.music;
+  low.gain.value=.34;pulse.gain.value=.075;air.gain.value=.09;
   music.connect(audio.master);low.connect(music);pulse.connect(music);air.connect(music);
   [38,57,76].forEach((f,i)=>{const o=a.createOscillator();o.type=i===0?"sine":i===1?"triangle":"sawtooth";o.frequency.value=f;o.connect(low);o.start();});
   const lfo=a.createOscillator(),lfoGain=a.createGain();
@@ -6207,28 +6243,36 @@ function playTheme(){
     audio.theme.loop=true;
     audio.theme.muted=false;
     const p=audio.theme.play();
-    if(p&&p.catch)p.catch(()=>{});
+    if(p&&p.catch)p.catch(()=>setAudioStatus("procedural audio",true));
   }catch(e){}
 }
 function unlockAudio(startMusic=false,forceTest=false){
   initAudio();
+  const finish=()=>{
+    if(audio&&audio.ctx)startProceduralMusic();
+    if(audio&&audio.musicGain)audio.musicGain.gain.value=MUSIC_GAIN_BASE*SETTINGS.music;
+    if(startMusic)playTheme();
+    if(audio&&!audio.unlocked){
+      audio.unlocked=true;
+      const b=document.getElementById("audioEnable");
+      if(b){b.classList.add("audioOn");b.textContent="AUDIO LIVE";}
+    }
+    if(audio&&audio.ctx&&audio.ctx.state==="running")setAudioStatus("audio live");
+    else setAudioStatus("audio starting",true);
+    if(forceTest||audio&&!audio.tested){
+      if(audio)audio.tested=true;
+      sound("audioTest");
+      setTimeout(()=>sound("roomWhisper"),360);
+    }
+  };
   if(audio&&audio.ctx&&audio.ctx.state==="suspended"){
-    try{audio.ctx.resume();}catch(e){}
+    setAudioStatus("audio starting",true);
+    try{
+      const p=audio.ctx.resume();
+      if(p&&p.then)audioResumePromise=p.then(finish).catch(()=>setAudioStatus("click audio again",true));
+    }catch(e){setAudioStatus("click audio again",true);}
   }
-  if(audio&&audio.ctx)startProceduralMusic();
-  if(audio&&audio.musicGain)audio.musicGain.gain.value=.075*SETTINGS.music;
-  if(startMusic)playTheme();
-  if(audio&&!audio.unlocked){
-    audio.unlocked=true;
-    const b=document.getElementById("audioEnable");
-    if(b){b.classList.add("audioOn");b.textContent="AUDIO LIVE";}
-    const s=document.getElementById("voiceStatus");
-    if(s)s.textContent="audio live";
-  }
-  if(forceTest||audio&&!audio.tested){
-    if(audio)audio.tested=true;
-    sound("audioTest");
-  }
+  finish();
 }
 function tone(f,d=.12,v=.08,type="sine"){
   if(!audio||!audio.ctx)return;
@@ -6275,7 +6319,7 @@ function sound(name){
 }
 function updateAudioMood(dt){
   if(!audio||!audio.ctx)return;
-  const target=(.025+S.alert*.00035+S.detection*.00045+((S.boss&&S.boss.active)?0.035:0))*SETTINGS.music;
+  const target=(.014+S.alert*.00024+S.detection*.0003+((S.boss&&S.boss.active)?0.022:0))*SETTINGS.music;
   audio.drone.gain.value+=(target-audio.drone.gain.value)*dt;
   heartbeat-=dt;whisper-=dt;
   if(S.detection>45&&heartbeat<=0){
