@@ -13,6 +13,8 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#020204;color:#e8edf2;font-family:"Courier New",monospace;user-select:none}
 canvas{display:block;width:100vw;height:100vh;background:#030406}
 button{font-family:inherit}
+.back-to-portfolio{position:fixed;bottom:12px;left:12px;z-index:9999;padding:8px 16px;background:rgba(13,13,13,.75);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.15);border-radius:100px;color:#fff;font-family:inherit;font-size:13px;font-weight:600;text-decoration:none;transition:background .2s ease,transform .2s ease,opacity .2s ease;opacity:.7}
+.back-to-portfolio:hover{opacity:1;background:rgba(61,90,254,.85);transform:translateY(-2px)}
 #ui{position:fixed;inset:0;pointer-events:none}
 .panel{background:rgba(3,7,12,.86);border:1px solid rgba(119,215,191,.28);box-shadow:0 0 22px rgba(0,0,0,.4),inset 0 0 20px rgba(119,215,191,.03);backdrop-filter:blur(6px)}
 #intro{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 32%,rgba(97,18,38,.22),transparent 38%),#020204;pointer-events:all}
@@ -250,6 +252,10 @@ button{font-family:inherit}
 </head>
 <body>
 <canvas id="game"></canvas>
+<!-- Back to portfolio link -->
+<a href="https://gohziqian1234-cmyk.github.io/portfolio_gohziqian/" target="_top" class="back-to-portfolio" title="Back to Ziqian's Portfolio">
+  &larr; Portfolio
+</a>
 <audio id="themeAudio" src="parasite_theme.mp4" preload="auto" loop></audio>
 <audio id="voiceAudio" preload="auto"></audio>
 <div id="ui">
